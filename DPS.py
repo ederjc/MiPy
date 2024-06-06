@@ -4,22 +4,22 @@ import utime as time
 
 def getTwosComplement(raw_val, length):
     """Get two's complement of `raw_val`.
-        Args:
-            raw_val (int): Raw value
-            length (int): Max bit length
-        Returns:
-            int: Two's complement
-        """
-        if raw_val & (1 << (length - 1)):
-            raw_val = raw_val - (1 << length)
-        return raw_val
+    Args:
+        raw_val (int): Raw value
+        length (int): Max bit length
+    Returns:
+        int: Two's complement
+    """
+    if raw_val & (1 << (length - 1)):
+        raw_val = raw_val - (1 << length)
+    return raw_val
 
 class DPS:
 
     """Class of DPS, Pressure and Temperature sensor.
     """
 
-    def __init__(self, scl_pin, sda_pin, addr=0x77):
+    def __init__(self, i2c, addr=0x77):
 
         # Compensation Scale Factors
 
@@ -50,7 +50,7 @@ class DPS:
         self.addr = addr
         self.kP = 1040384
         self.kT = 1040384
-        self.bus = machine.I2C(0, scl='P6_0', sda='P6_1')
+        self.bus = i2c
         self.correctTemperature()
         self.setOversamplingRate()
 
@@ -97,9 +97,8 @@ class DPS:
         Returns:
             int: Raw pressure
         """
-        self.bus.writeto(self.addr, bytes([0x00]))
-        p_bytes = self.bus.readfrom(self.addr, 3)
-        p = int.from_bytes(p_bytes, 'big') & 0xFFFFFF
+        p_bytes = self.bus.readfrom_mem(self.addr, 0x00, 3)
+        p = int.from_bytes(p_bytes, 'big')
         return getTwosComplement(p, 24)
 
     def getRawTemperature(self):
@@ -107,9 +106,8 @@ class DPS:
         Returns:
             int: Raw temperature
         """
-        self.bus.writeto(self.addr, bytes([0x03]))
-        t_bytes = self.bus.readfrom(self.addr, 3)
-        t = int.from_bytes(t_bytes, 'big') & 0xFFFFFF
+        t_bytes = self.bus.readfrom_mem(self.addr, 0x03, 3)
+        t = int.from_bytes(t_bytes, 'big')
         return getTwosComplement(t, 24)
 
     def getPressureCalibrationCoefficients(self):
@@ -123,19 +121,36 @@ class DPS:
             int: Pressure calibration coefficient (c11)
             int: Pressure calibration coefficient (c21)
         """
-        coefficients = []
-        for reg in range(0x13, 0x22):
-            self.bus.writeto(self.addr, bytes([reg]))
-            coeff_byte = self.bus.readfrom(self.addr, 1)
-            coefficients.append(coeff_byte[0])
-    
-        c00 = self._combineCoefficients(coefficients[0:3], 20)
-        c10 = self._combineCoefficients(coefficients[3:6], 20)
-        c20 = self._combineCoefficients(coefficients[6:8], 16)
-        c30 = self._combineCoefficients(coefficients[14:16], 16)
-        c01 = self._combineCoefficients(coefficients[8:10], 16)
-        c11 = self._combineCoefficients(coefficients[10:12], 16)
-        c21 = self._combineCoefficients(coefficients[12:14], 16)
+        src13 = self.bus.readfrom_mem(self.addr, 0x13, 1)[0]
+        src14 = self.bus.readfrom_mem(self.addr, 0x14, 1)[0]
+        src15 = self.bus.readfrom_mem(self.addr, 0x15, 1)[0]
+        src16 = self.bus.readfrom_mem(self.addr, 0x16, 1)[0]
+        src17 = self.bus.readfrom_mem(self.addr, 0x17, 1)[0]
+        src18 = self.bus.readfrom_mem(self.addr, 0x18, 1)[0]
+        src19 = self.bus.readfrom_mem(self.addr, 0x19, 1)[0]
+        src1A = self.bus.readfrom_mem(self.addr, 0x1A, 1)[0]
+        src1B = self.bus.readfrom_mem(self.addr, 0x1B, 1)[0]
+        src1C = self.bus.readfrom_mem(self.addr, 0x1C, 1)[0]
+        src1D = self.bus.readfrom_mem(self.addr, 0x1D, 1)[0]
+        src1E = self.bus.readfrom_mem(self.addr, 0x1E, 1)[0]
+        src1F = self.bus.readfrom_mem(self.addr, 0x1F, 1)[0]
+        src20 = self.bus.readfrom_mem(self.addr, 0x20, 1)[0]
+        src21 = self.bus.readfrom_mem(self.addr, 0x21, 1)[0]
+
+        c00 = (src13 << 12) | (src14 << 4) | (src15 >> 4)
+        c00 = getTwosComplement(c00, 20)
+        c10 = ((src15 & 0x0F) << 16) | (src16 << 8) | src17
+        c10 = getTwosComplement(c10, 20)
+        c20 = (src1C << 8) | src1D
+        c20 = getTwosComplement(c20, 16)
+        c30 = (src20 << 8) | src21
+        c30 = getTwosComplement(c30, 16)
+        c01 = (src18 << 8) | src19
+        c01 = getTwosComplement(c01, 16)
+        c11 = (src1A << 8) | src1B
+        c11 = getTwosComplement(c11, 16)
+        c21 = (src1E << 8) | src1F
+        c21 = getTwosComplement(c21, 16)
 
         return c00, c10, c20, c30, c01, c11, c21
 
